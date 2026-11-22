@@ -64,7 +64,7 @@ pytest                          # 21 tests
 
 The dataset (`data/cylinder_flow.npz`, 2.8 MB) is committed. To regenerate it from scratch (14 simulations, a few minutes on several cores): `cfdbench generate`.
 
-With Docker (not tested on every platform, see Limitations):
+With Docker (image built and run on Windows with Docker Desktop):
 
 ```bash
 docker build -t cfdbench .
@@ -149,7 +149,6 @@ results/               # benchmark.json and figures
 - **Small test sets**: 5 interpolation and 3 extrapolation cases. Differences of a few percent between models are not statistically meaningful.
 - **Baselines are classical** (interpolation, POD regression). There is no neural network (CNN, U-Net, neural operator), although those are the models the benchmark is meant for. I did not add one to keep the suite dependency-light.
 - **Web platform is a prototype**: no user accounts, no rate limiting and no protection against repeated submissions, so the leaderboard can be spammed or gamed. Submissions are limited to 25 MB and names are validated, but it should not be exposed publicly as is. SQLite and a single process do not scale. The test ground truth is stored in the dataset file used by the server.
-- **Docker image and CI were written but not run** on my machine (Docker is not installed there); the tests and the lint were run locally on Windows.
 - **Not an exhaustive literature review**: only the benchmarks cited above were considered.
 
 ## Possible improvements
