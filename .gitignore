@@ -1,0 +1,11 @@
+__pycache__/
+*.egg-info/
+.venv/
+venv/
+.ipynb_checkpoints/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+# generated at benchmark time
+results/leaderboard.db

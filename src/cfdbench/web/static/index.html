@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CFD Flow Prediction Benchmark</title>
+<style>
+  :root { --bg:#0f1419; --fg:#e6e6e6; --muted:#8b98a5; --card:#171d25; --line:#2a3340; --acc:#4cc2ff; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#fafafa; --fg:#1b1f24; --muted:#5b6670; --card:#fff; --line:#d8dee4; --acc:#0969da; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1, h2 { font-family: ui-monospace, Consolas, monospace; font-weight: 600; }
+  h1 { font-size: 1.5rem; margin-bottom: 4px; }
+  p.sub { color: var(--muted); margin-top: 0; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin: 16px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  th:nth-child(-n+3), td:nth-child(-n+3) { text-align: left; }
+  th { color: var(--muted); font-weight: 500; cursor: default; }
+  .scroll { overflow-x: auto; }
+  select, input, button { background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; font: inherit; }
+  button { cursor: pointer; border-color: var(--acc); color: var(--acc); }
+  label { display: inline-block; margin: 4px 12px 4px 0; color: var(--muted); }
+  code, pre { font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+  pre { background: var(--bg); border: 1px solid var(--line); padding: 10px; border-radius: 6px; overflow-x: auto; }
+  #msg { margin-top: 8px; white-space: pre-wrap; }
+  .err { color: #f85149; }
+  a { color: var(--acc); }
+</style>
+</head>
+<body>
+<main>
+  <h1>CFD Flow Prediction Benchmark</h1>
+  <p class="sub">Predict the mean 2D flow past a cylinder from the Reynolds number. Lower error is better.</p>
+
+  <section>
+    <h2>Leaderboard</h2>
+    <label>Split
+      <select id="split">
+        <option value="test_interp">test_interp (between training Re)</option>
+        <option value="test_extrap">test_extrap (outside training Re)</option>
+      </select>
+    </label>
+    <label>Metric
+      <select id="metric"></select>
+    </label>
+    <div class="scroll"><table id="board"><thead></thead><tbody></tbody></table></div>
+  </section>
+
+  <section>
+    <h2>Dataset</h2>
+    <div id="dataset">Loading...</div>
+    <p><a href="/api/dataset/train">Download training split (.npz)</a> &middot; <a href="/docs">API documentation</a></p>
+  </section>
+
+  <section>
+    <h2>Submit predictions</h2>
+    <form id="form">
+      <label>Model name <input name="model" required maxlength="60"></label>
+      <label>Author <input name="author" maxlength="60"></label>
+      <label>File (.npz) <input name="file" type="file" accept=".npz" required></label>
+      <button type="submit">Evaluate</button>
+    </form>
+    <div id="msg"></div>
+    <pre>import numpy as np
+np.savez("submission.npz", test_interp=pred_interp, test_extrap=pred_extrap)
+# each array: shape (N, 2, nx, ny), channels (u, v), samples in ascending Re</pre>
+  </section>
+</main>
+<script>
+const METRICS = ["rel_l2","mse","mae","max_abs","wake_rel_l2","div_rms"];
+const $ = (id) => document.getElementById(id);
+$("metric").innerHTML = METRICS.map(m => `<option>${m}</option>`).join("");
+const fmt = (x) => x == null ? "" : (Math.abs(x) < 0.001 && x !== 0 ? x.toExponential(2) : x.toFixed(4));
+
+async function loadBoard() {
+  const r = await fetch(`/api/leaderboard?split=${$("split").value}&metric=${$("metric").value}`);
+  const d = await r.json();
+  $("board").tHead.innerHTML = "<tr><th>#</th><th>Model</th><th>Author</th>" + METRICS.map(m => `<th>${m}</th>`).join("") + "<th>fit (s)</th></tr>";
+  $("board").tBodies[0].innerHTML = d.entries.map(e =>
+    `<tr><td>${e.rank}</td><td>${e.model}</td><td>${e.author || (e.source === "baseline" ? "baseline" : "")}</td>` +
+    METRICS.map(m => `<td>${fmt(e.metrics[m])}</td>`).join("") + `<td>${fmt(e.fit_time_s)}</td></tr>`).join("");
+}
+async function loadDataset() {
+  const d = await (await fetch("/api/dataset")).json();
+  $("dataset").innerHTML = `<code>${d.name}</code> v${d.version} &middot; grid ${d.grid.join(" x ")} &middot; checksum <code>${d.checksum}</code><br>` +
+    Object.entries(d.splits).map(([s, v]) => `<b>${s}</b>: Re = ${v.join(", ")}`).join("<br>");
+}
+$("split").onchange = $("metric").onchange = loadBoard;
+$("form").onsubmit = async (ev) => {
+  ev.preventDefault();
+  $("msg").className = ""; $("msg").textContent = "Evaluating...";
+  const r = await fetch("/api/submit", { method: "POST", body: new FormData(ev.target) });
+  const d = await r.json();
+  if (r.ok) { $("msg").textContent = "Accepted:\n" + JSON.stringify(d.results, null, 2); loadBoard(); }
+  else { $("msg").className = "err"; $("msg").textContent = "Error: " + (d.detail || r.status); }
+};
+loadBoard(); loadDataset();
+</script>
+</body>
+</html>
