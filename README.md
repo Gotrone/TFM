@@ -80,7 +80,17 @@ Generating the reference data is the compute-heavy part of the suite, so I measu
 
 ![Process scaling](results/figures/scaling_processes.png)
 
-**Scaling is poor**: the best speedup is 1.65 with 4 workers and it gets worse beyond that. The solver is *memory-bandwidth bound* (every step streams the nine distribution arrays through several NumPy temporaries), so the processes compete for the same memory bus instead of adding compute. This is also why generating the full dataset with 12 workers took about 35 minutes instead of the few minutes I expected. I did not profile the code to confirm this; it is my explanation, consistent with the flat throughput in the grid study below.
+**Scaling is poor**: the best speedup is 1.65 with 4 workers and it gets worse beyond that. My main hypothesis is that the solver is *memory-bandwidth bound* (every step streams the nine distribution arrays through many NumPy temporaries), so processes compete for the same memory bus. A copy test (`np.copyto` on 128 MB arrays, RAM to RAM) gives:
+
+| Processes | Total bandwidth | Per process |
+|---|---|---|
+| 1 | 18 GB/s | 18 GB/s |
+| 4 | 34 GB/s | 8.5 GB/s |
+| 8 | 52 GB/s | 6.5 GB/s |
+| 16 | 72 GB/s | 4.5 GB/s |
+| GPU (GTX 1660 Ti) | 268 GB/s | (spec: 288) |
+
+The per-process bandwidth does collapse, which supports the hypothesis. **But it does not explain everything**: the total bandwidth still grows about 4x from 1 to 16 processes, while the solver only gains 1.3x. Other likely factors, which I did not isolate: 16 threads on 8 physical cores (hyper-threading adds little for this kind of code), process start-up time (about 5 s of work per task), and the shared cache. This is also why generating the full dataset with 12 workers took about 35 minutes instead of the few minutes I expected.
 
 ### CPU vs GPU: throughput vs grid size
 
@@ -97,7 +107,7 @@ Million lattice updates per second (MLUPS, higher is better), 30 steps per measu
 ![Grid scaling](results/figures/scaling_grid.png)
 
 - On the **dataset grid the GPU brings nothing**: the grid is so small that a step is limited by the latency of launching about a hundred small GPU kernels, not by computation.
-- From 400 x 144 on the GPU wins, and on the largest grid it is about **17x faster in float64 and 31x in float32** than one CPU process. CPU throughput stays flat (about 1.7 MLUPS), which supports the memory-bound explanation.
+- From 400 x 144 on the GPU wins, and on the largest grid it is about **17x faster in float64 and 31x in float32** than one CPU process. CPU throughput stays flat (about 1.7 MLUPS) once the grid no longer fits in cache, which is consistent with a memory-bound solver. The GPU reaches 268 GB/s on the copy test, so its 53 MLUPS is far from what the hardware could do: the NumPy-style temporaries waste bandwidth.
 - float32 differs from float64 by about 2e-5 on the mean field in a short test (`max |gpu32 - cpu64|`), far below the model errors of the benchmark, but I did not re-run the full dataset in float32.
 
 ### Cluster (SLURM)
