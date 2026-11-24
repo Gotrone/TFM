@@ -20,8 +20,8 @@ Given the Reynolds number, predict the **time-averaged velocity field** `(u, v)`
 | Split | Reynolds numbers | Purpose |
 |---|---|---|
 | `train` | 40, 60, 80, 100, 120, 140 | fit the model |
-| `test_interp` | 50, 70, 90, 110, 130 | generalization between training points |
-| `test_extrap` | 30, 160, 180 | generalization outside the training range |
+| `test_interp` | 45, 50, 55, 65, 70, 75, 85, 90, 95, 105, 110, 115, 125, 130, 135 (15 cases) | generalization between training points |
+| `test_extrap` | 30, 35, 150, 160, 170, 180 (6 cases) | generalization outside the training range |
 
 The wake changes with Re (the recirculation bubble shrinks, and in an unbounded domain vortex shedding starts around Re 47), so the task is not trivial.
 
@@ -33,17 +33,18 @@ Relative L2 error (lower is better), mean over the test cases of each split. Pro
 
 | Model | Idea | `test_interp` | `test_extrap` |
 |---|---|---|---|
-| `linear` | pixel-wise linear interpolation in Re | **0.030** | 0.056 |
-| `pod-poly` | POD (5 modes) + cubic regression of the coefficients | 0.034 | 0.276 |
-| `pod-gp` | POD (5 modes) + Gaussian-process regression | 0.037 | 0.131 |
-| `nearest` | field of the closest training Re | 0.051 | 0.056 |
-| `mean` | average training field | 0.080 | 0.121 |
-| `freestream` | uniform flow, no obstacle | 0.305 | 0.244 |
+| `linear` | pixel-wise linear interpolation in Re | **0.031** | 0.054 |
+| `pod-mlp` | POD (5 modes) + small neural network (MLP) on the coefficients | 0.032 | 0.084 |
+| `pod-gp` | POD (5 modes) + Gaussian-process regression | 0.035 | 0.120 |
+| `pod-poly` | POD (5 modes) + cubic regression of the coefficients | 0.036 | 0.219 |
+| `nearest` | field of the closest training Re | 0.044 | 0.054 |
+| `mean` | average training field | 0.090 | 0.121 |
+| `freestream` | uniform flow, no obstacle | 0.306 | 0.246 |
 
 What it shows:
 
 - Interpolation is easy for simple methods on this smooth family of flows; `linear` wins.
-- Polynomial regression on POD coefficients is accurate inside the training range and **diverges outside it** (0.276 at extrapolation, worse than the average field). Clamped methods (`linear`, `nearest`) degrade gracefully.
+- Polynomial regression on POD coefficients is accurate inside the training range and **diverges outside it** (0.219 at extrapolation, worse than the average field). The neural network and the Gaussian process degrade less, and clamped methods (`linear`, `nearest`) degrade gracefully.
 - No baseline truly extrapolates: this is the open part of the benchmark and the reason for a separate split.
 
 ![Error vs Reynolds](results/figures/error_vs_reynolds.png)
@@ -59,10 +60,10 @@ pip install -e ".[dev]"
 
 cfdbench benchmark --reset      # run all baselines, fill the leaderboard, write figures
 cfdbench serve                  # web platform on http://127.0.0.1:8000
-pytest                          # 21 tests
+pytest                          # 23 tests
 ```
 
-The dataset (`data/cylinder_flow.npz`, 2.8 MB) is committed. To regenerate it from scratch (14 simulations, a few minutes on several cores): `cfdbench generate`.
+The dataset (`data/cylinder_flow.npz`, 2.8 MB) is committed. To regenerate it from scratch (27 simulations; it took about half an hour on my 16-thread laptop, because parallel runs compete for memory bandwidth): `cfdbench generate`.
 
 With Docker (image built and run on Windows with Docker Desktop):
 
@@ -118,13 +119,13 @@ src/cfdbench/
 ├── dataset.py         # splits, parallel generation, .npz storage, loading, checksum
 ├── preprocessing.py   # Standardizer (fluid cells only), downsample, crop, field_to_image
 ├── metrics.py         # evaluation metrics on fluid cells
-├── models.py          # Model interface, registry and the 6 baselines
+├── models.py          # Model interface, registry and the 7 baselines
 ├── benchmark.py       # fit / predict / score loop, submission scoring
 ├── leaderboard.py     # SQLite storage and ranking
 ├── figures.py         # figures for the report
 ├── cli.py             # `cfdbench` command
 └── web/               # FastAPI app and static front end
-tests/                 # 21 tests (solver, preprocessing, metrics, models, API)
+tests/                 # 23 tests (solver, preprocessing, metrics, models, API)
 data/cylinder_flow.npz # the versioned dataset
 results/               # benchmark.json and figures
 ```
@@ -146,9 +147,9 @@ results/               # benchmark.json and figures
 - **Simulated data, not experimental.** The goal of the thesis was *experimentally validated* datasets (for example the FDA nozzle and blood pump benchmarks, FlowBench, CFDBench). This repository only prepares the pipeline and uses a self-generated dataset so that everything runs offline in minutes. Conclusions about real flows cannot be drawn from it.
 - **The solver is not quantitatively validated** against reference values (for example Strouhal number or drag coefficient). The fields look physically plausible and are divergence-free to about 1e-3, but that is all I checked. The periodic top and bottom boundaries and the blockage of about 19 % also bias the flow compared with an unbounded cylinder.
 - **One narrow task**: 2D laminar flow, one geometry, one parameter (Re), mean field only. No unsteady prediction, no pressure, no turbulence, no 3D, no other obstacle shapes.
-- **Small test sets**: 5 interpolation and 3 extrapolation cases. Differences of a few percent between models are not statistically meaningful.
-- **Baselines are classical** (interpolation, POD regression). There is no neural network (CNN, U-Net, neural operator), although those are the models the benchmark is meant for. I did not add one to keep the suite dependency-light.
-- **Web platform is a prototype**: no user accounts, no rate limiting and no protection against repeated submissions, so the leaderboard can be spammed or gamed. Submissions are limited to 25 MB and names are validated, but it should not be exposed publicly as is. SQLite and a single process do not scale. The test ground truth is stored in the dataset file used by the server.
+- **Modest test sets**: 15 interpolation and 6 extrapolation cases, all from one smooth family of flows. Differences of a few percent between models should not be over-interpreted.
+- **Baselines are small**: interpolation, POD regression and a small MLP on POD coefficients. There is no CNN, U-Net or neural operator, which are the models the benchmark is ultimately meant for (they need a deep-learning framework and more data than 6 training fields).
+- **Web platform is a prototype**: submissions are limited to 25 MB, names are validated, an optional API key (`CFDBENCH_API_KEY`) protects the upload and a per-IP limit (`CFDBENCH_RATE_LIMIT`, default 10 per hour) slows spam. The limit is kept in memory (lost at restart, not shared between processes), there are no user accounts, and anyone can still submit predictions tuned on the public test Reynolds numbers. SQLite and a single process do not scale. The test ground truth is stored in the dataset file used by the server.
 - **Not an exhaustive literature review**: only the benchmarks cited above were considered.
 
 ## Possible improvements

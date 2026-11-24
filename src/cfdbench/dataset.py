@@ -19,13 +19,13 @@ import numpy as np
 from .lbm import CylinderConfig, cylinder_mask, simulate
 
 DATASET_NAME = "cylinder-flow-lbm"
-DATASET_VERSION = "1.0"
+DATASET_VERSION = "2.0"
 
 #: Reynolds numbers of each split.
 SPLITS: dict[str, list[int]] = {
     "train": [40, 60, 80, 100, 120, 140],
-    "test_interp": [50, 70, 90, 110, 130],  # between training points
-    "test_extrap": [30, 160, 180],  # outside the training range
+    "test_interp": [45, 50, 55, 65, 70, 75, 85, 90, 95, 105, 110, 115, 125, 130, 135],  # between training points
+    "test_extrap": [30, 35, 150, 160, 170, 180],  # outside the training range
 }
 
 DEFAULT_PATH = Path("data") / "cylinder_flow.npz"
