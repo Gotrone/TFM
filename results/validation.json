@@ -1,0 +1,34 @@
+[
+  {
+    "reynolds": 100,
+    "ny": 72,
+    "blockage": 0.194,
+    "strouhal": 0.1911713484412659,
+    "reference": 0.1647,
+    "rel_error": 0.161
+  },
+  {
+    "reynolds": 140,
+    "ny": 72,
+    "blockage": 0.194,
+    "strouhal": 0.20264676587858763,
+    "reference": 0.18046329686863705,
+    "rel_error": 0.123
+  },
+  {
+    "reynolds": 100,
+    "ny": 144,
+    "blockage": 0.097,
+    "strouhal": 0.17807202146381662,
+    "reference": 0.1647,
+    "rel_error": 0.081
+  },
+  {
+    "reynolds": 140,
+    "ny": 144,
+    "blockage": 0.097,
+    "strouhal": 0.19136752550872196,
+    "reference": 0.18046329686863705,
+    "rel_error": 0.06
+  }
+]

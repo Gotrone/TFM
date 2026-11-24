@@ -49,6 +49,19 @@ What it shows:
 
 ![Error vs Reynolds](results/figures/error_vs_reynolds.png)
 
+## Solver validation
+
+The shedding frequency (Strouhal number `St = f D / U`) measured from a probe in the wake (`cfdbench.validation`, results in [`results/validation.json`](results/validation.json)) is compared with Williamson's fit for an unconfined cylinder, `St = 0.2665 - 1.018 / sqrt(Re)`:
+
+| Re | Domain | Blockage `D / ny` | St measured | St reference | Relative error |
+|---|---|---|---|---|---|
+| 100 | dataset (200 x 72) | 19.4 % | 0.191 | 0.165 | +16 % |
+| 100 | twice as wide (200 x 144) | 9.7 % | 0.178 | 0.165 | +8 % |
+| 140 | dataset (200 x 72) | 19.4 % | 0.203 | 0.180 | +12 % |
+| 140 | twice as wide (200 x 144) | 9.7 % | 0.191 | 0.180 | +6 % |
+
+The solver produces the right behavior (shedding starts, St increases with Re) but **overestimates St**, and the error roughly halves when the blockage is halved, so confinement (periodic top and bottom boundaries) explains a large part of it. The rest probably comes from the coarse resolution (14 cells per diameter), which I did not test. The dataset therefore represents a *confined* cylinder flow, which is fine for a benchmark of prediction models but not for physical conclusions. Drag was not validated.
+
 ## Quick start
 
 ```bash
@@ -145,7 +158,7 @@ results/               # benchmark.json and figures
 ## Limitations
 
 - **Simulated data, not experimental.** The goal of the thesis was *experimentally validated* datasets (for example the FDA nozzle and blood pump benchmarks, FlowBench, CFDBench). This repository only prepares the pipeline and uses a self-generated dataset so that everything runs offline in minutes. Conclusions about real flows cannot be drawn from it.
-- **The solver is not quantitatively validated** against reference values (for example Strouhal number or drag coefficient). The fields look physically plausible and are divergence-free to about 1e-3, but that is all I checked. The periodic top and bottom boundaries and the blockage of about 19 % also bias the flow compared with an unbounded cylinder.
+- **The solver is only partly validated**: St is 6 to 16 % above the literature (see above), drag is not checked, and grid convergence was not tested. The blockage of 19 % with periodic top and bottom boundaries biases the flow compared with an unbounded cylinder. The dataset keeps this geometry so that results stay comparable.
 - **One narrow task**: 2D laminar flow, one geometry, one parameter (Re), mean field only. No unsteady prediction, no pressure, no turbulence, no 3D, no other obstacle shapes.
 - **Modest test sets**: 15 interpolation and 6 extrapolation cases, all from one smooth family of flows. Differences of a few percent between models should not be over-interpreted.
 - **Baselines are small**: interpolation, POD regression and a small MLP on POD coefficients. There is no CNN, U-Net or neural operator, which are the models the benchmark is ultimately meant for (they need a deep-learning framework and more data than 6 training fields).
@@ -154,7 +167,7 @@ results/               # benchmark.json and figures
 
 ## Possible improvements
 
-1. Add experimentally validated data (PIV or the FDA benchmarks) and real CFD datasets (CFDBench, FlowBench) through the same `CFDDataset` interface; validate the solver (Strouhal, drag).
+1. Add experimentally validated data (PIV or the FDA benchmarks) and real CFD datasets (CFDBench, FlowBench) through the same `CFDDataset` interface; regenerate the dataset in a wider domain at higher resolution and validate drag too.
 2. Add deep-learning baselines (CNN / U-Net, Fourier neural operator) and a GPU training script for the HPC cluster.
 3. Widen the task: several geometries and parameters, unsteady prediction (rollout error), pressure and vorticity.
 4. Add metrics that matter physically (vorticity, recirculation length, drag) and statistical significance (more test cases, confidence intervals).
