@@ -80,12 +80,14 @@ def viscosity_for_reynolds(reynolds: float, cfg: CylinderConfig) -> float:
     return cfg.u_in * cfg.diameter / reynolds
 
 
-def simulate(reynolds: float, cfg: CylinderConfig | None = None, seed: int = 0) -> dict:
+def simulate(reynolds: float, cfg: CylinderConfig | None = None, seed: int = 0, probe: tuple[int, int] | None = None) -> dict:
     """Run one case and return the time-averaged and last instantaneous fields.
 
     Returns a dict with ``u_mean``, ``v_mean`` (time averages over
     ``cfg.average_steps`` steps after the warm-up), ``u_inst``, ``v_inst`` (last
     frame) and ``mask``. Velocities are in units of the inlet velocity.
+    If ``probe=(ix, iy)`` is given, the transverse velocity at that node is recorded at every
+    averaging step and returned as ``probe_v`` (used to measure the shedding frequency).
     """
     cfg = cfg or CylinderConfig()
     nu = viscosity_for_reynolds(reynolds, cfg)
@@ -102,6 +104,7 @@ def simulate(reynolds: float, cfg: CylinderConfig | None = None, seed: int = 0) 
         :, 0, :
     ]
 
+    probe_v: list[float] = []
     u_sum = np.zeros((cfg.nx, cfg.ny))
     v_sum = np.zeros((cfg.nx, cfg.ny))
 
@@ -125,6 +128,8 @@ def simulate(reynolds: float, cfg: CylinderConfig | None = None, seed: int = 0) 
         if step >= cfg.warmup_steps:
             u_sum += ux
             v_sum += uy
+            if probe is not None:
+                probe_v.append(float(uy[probe]) / cfg.u_in)
 
     if not np.isfinite(f).all():
         raise RuntimeError(f"Simulation diverged for Re={reynolds}")
@@ -142,4 +147,5 @@ def simulate(reynolds: float, cfg: CylinderConfig | None = None, seed: int = 0) 
         "u_inst": u_inst.astype(np.float32),
         "v_inst": v_inst.astype(np.float32),
         "mask": mask,
+        "probe_v": np.array(probe_v),
     }

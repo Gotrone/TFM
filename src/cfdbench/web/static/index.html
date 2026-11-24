@@ -61,6 +61,7 @@
     <form id="form">
       <label>Model name <input name="model" required maxlength="60"></label>
       <label>Author <input name="author" maxlength="60"></label>
+      <label>API key (if required) <input id="key" type="password" autocomplete="off"></label>
       <label>File (.npz) <input name="file" type="file" accept=".npz" required></label>
       <button type="submit">Evaluate</button>
     </form>
@@ -93,7 +94,7 @@ $("split").onchange = $("metric").onchange = loadBoard;
 $("form").onsubmit = async (ev) => {
   ev.preventDefault();
   $("msg").className = ""; $("msg").textContent = "Evaluating...";
-  const r = await fetch("/api/submit", { method: "POST", body: new FormData(ev.target) });
+  const r = await fetch("/api/submit", { method: "POST", body: new FormData(ev.target), headers: { "X-API-Key": $("key").value } });
   const d = await r.json();
   if (r.ok) { $("msg").textContent = "Accepted:\n" + JSON.stringify(d.results, null, 2); loadBoard(); }
   else { $("msg").className = "err"; $("msg").textContent = "Error: " + (d.detail || r.status); }

@@ -139,7 +139,7 @@ class _PODModel(Model):
 
     def predict(self, reynolds):
         x = self._scale(reynolds)
-        coeffs = np.stack([reg.predict(x) for reg in self.regressors], axis=1)
+        coeffs = np.stack([np.asarray(reg.predict(x)).reshape(len(x)) for reg in self.regressors], axis=1)
         flat = coeffs @ self.basis + self.mean_
         z = flat.reshape((len(x),) + self.shape)
         return self.scaler.inverse(z, self.mask)
@@ -172,3 +172,16 @@ class PODGaussianProcess(_PODModel):
 
         kernel = ConstantKernel(1.0) * RBF(length_scale=1.0) + WhiteKernel(1e-6, (1e-10, 1e-2))
         return GaussianProcessRegressor(kernel, normalize_y=True, n_restarts_optimizer=2, random_state=0).fit(x, y)
+
+
+@register("pod-mlp")
+class PODNeuralNet(_PODModel):
+    """POD + small neural network (multilayer perceptron) regression of the modal coefficients on Re."""
+
+    def _make_regressor(self, x, y):
+        from sklearn.compose import TransformedTargetRegressor
+        from sklearn.neural_network import MLPRegressor
+        from sklearn.preprocessing import StandardScaler
+
+        mlp = MLPRegressor(hidden_layer_sizes=(16, 16), activation="tanh", solver="lbfgs", alpha=1e-4, max_iter=5000, random_state=0)
+        return TransformedTargetRegressor(mlp, transformer=StandardScaler()).fit(x, y.reshape(-1, 1))

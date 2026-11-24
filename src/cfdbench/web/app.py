@@ -4,6 +4,8 @@ Run with ``cfdbench serve`` or ``uvicorn cfdbench.web.app:app``. Configuration (
 
 * ``CFDBENCH_DATA``: path of the dataset ``.npz`` (default ``data/cylinder_flow.npz``)
 * ``CFDBENCH_DB``: path of the SQLite leaderboard (default ``results/leaderboard.db``)
+* ``CFDBENCH_API_KEY``: if set, submissions must send it in the ``X-API-Key`` header
+* ``CFDBENCH_RATE_LIMIT``: max submissions per client IP and hour (default 10)
 """
 
 from __future__ import annotations
@@ -11,10 +13,13 @@ from __future__ import annotations
 import io
 import os
 import re
+import secrets
+import time
+from collections import defaultdict, deque
 from pathlib import Path
 
 import numpy as np
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -33,6 +38,9 @@ def create_app(data_path: str | Path | None = None, db_path: str | Path | None =
     db_path = Path(db_path or os.environ.get("CFDBENCH_DB", "results/leaderboard.db"))
     app = FastAPI(title="CFD Flow Prediction Benchmark", version="1.0")
     cache: dict[str, CFDDataset] = {}
+    api_key = os.environ.get("CFDBENCH_API_KEY", "")
+    rate_limit = int(os.environ.get("CFDBENCH_RATE_LIMIT", "10"))
+    recent: dict[str, deque] = defaultdict(deque)  # client -> timestamps of recent submissions
 
     def dataset() -> CFDDataset:
         if "ds" not in cache:
@@ -81,7 +89,22 @@ def create_app(data_path: str | Path | None = None, db_path: str | Path | None =
         return {"split": split, "metric": metric, "entries": leaderboard.get_leaderboard(db_path, split, metric)}
 
     @app.post("/api/submit")
-    async def submit(file: UploadFile = File(...), model: str = Form(...), author: str = Form("")):
+    async def submit(
+        request: Request,
+        file: UploadFile = File(...),
+        model: str = Form(...),
+        author: str = Form(""),
+        x_api_key: str = Header(""),
+    ):
+        if api_key and not secrets.compare_digest(x_api_key, api_key):
+            raise HTTPException(401, "missing or invalid API key (X-API-Key header)")
+        client = request.client.host if request.client else "unknown"
+        now = time.time()
+        window = recent[client]
+        while window and now - window[0] > 3600:
+            window.popleft()
+        if len(window) >= rate_limit:
+            raise HTTPException(429, f"rate limit: {rate_limit} submissions per hour")
         if not NAME_RE.match(model):
             raise HTTPException(422, "model name: 1-60 characters (letters, digits, space, . _ - +)")
         if author and not NAME_RE.match(author):
@@ -101,6 +124,7 @@ def create_app(data_path: str | Path | None = None, db_path: str | Path | None =
         for r in rows:
             r["model"] = model
         leaderboard.add_entries(db_path, rows, author=author, source="submission")
+        window.append(now)
         return {"model": model, "results": {r["split"]: r["metrics"] for r in rows}}
 
     @app.get("/")

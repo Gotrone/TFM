@@ -73,3 +73,32 @@ def test_submit_rejects_bad_files(client, tiny_dataset):
     nan[0, 0, 0, 0] = np.nan
     r = client.post("/api/submit", data={"model": "m"}, files={"file": ("s.npz", _npz(test_interp=nan, test_extrap=nan))})
     assert r.status_code == 422
+
+
+def test_api_key_required_when_configured(tiny_dataset, tmp_path, monkeypatch):
+    import cfdbench.web.app as web
+
+    monkeypatch.setattr(web, "load_dataset", lambda path: tiny_dataset)
+    monkeypatch.setenv("CFDBENCH_API_KEY", "s3cret")
+    (tmp_path / "d.npz").write_bytes(b"x")
+    c = TestClient(create_app(tmp_path / "d.npz", tmp_path / "lb.db"))
+    _, a = tiny_dataset.subset("test_interp")
+    _, b = tiny_dataset.subset("test_extrap")
+    files = {"file": ("s.npz", _npz(test_interp=a, test_extrap=b))}
+    assert c.post("/api/submit", data={"model": "m"}, files=files).status_code == 401
+    assert c.post("/api/submit", data={"model": "m"}, files=files, headers={"X-API-Key": "wrong"}).status_code == 401
+    assert c.post("/api/submit", data={"model": "m"}, files=files, headers={"X-API-Key": "s3cret"}).status_code == 200
+
+
+def test_rate_limit(tiny_dataset, tmp_path, monkeypatch):
+    import cfdbench.web.app as web
+
+    monkeypatch.setattr(web, "load_dataset", lambda path: tiny_dataset)
+    monkeypatch.setenv("CFDBENCH_RATE_LIMIT", "2")
+    (tmp_path / "d.npz").write_bytes(b"x")
+    c = TestClient(create_app(tmp_path / "d.npz", tmp_path / "lb.db"))
+    _, a = tiny_dataset.subset("test_interp")
+    _, b = tiny_dataset.subset("test_extrap")
+    files = {"file": ("s.npz", _npz(test_interp=a, test_extrap=b))}
+    codes = [c.post("/api/submit", data={"model": f"m{i}"}, files=files).status_code for i in range(3)]
+    assert codes == [200, 200, 429]

@@ -91,7 +91,7 @@ def test_divergence_of_constant_field_is_zero():
 
 # --- models and benchmark ----------------------------------------------------------------------
 def test_registry_contains_baselines():
-    assert {"freestream", "mean", "nearest", "linear", "pod-poly", "pod-gp"} <= set(models.REGISTRY)
+    assert {"freestream", "mean", "nearest", "linear", "pod-poly", "pod-gp", "pod-mlp"} <= set(models.REGISTRY)
     with pytest.raises(KeyError):
         models.create("nope")
 
@@ -113,7 +113,7 @@ def test_nearest_picks_closest(tiny_dataset):
 def test_pod_models_reproduce_smooth_training_data(tiny_dataset):
     ds = tiny_dataset
     re, f = ds.subset("train")
-    for name in ("pod-poly", "pod-gp"):
+    for name in ("pod-poly", "pod-gp", "pod-mlp"):
         pred = models.create(name, n_modes=4).fit(re, f, ds.mask).predict(re)
         err = np.linalg.norm(pred - f) / np.linalg.norm(f)
         assert err < 0.05, (name, err)
