@@ -8,6 +8,8 @@ version = "1.0.0"
 description = "Benchmarking suite for CFD flow prediction models: dataset, preprocessing, metrics, leaderboard and web platform"
 readme = "README.md"
 requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
     "numpy",
     "scipy",

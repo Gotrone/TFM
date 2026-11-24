@@ -176,4 +176,4 @@ results/               # benchmark.json and figures
 
 ## License
 
-No license has been chosen yet: all rights reserved until one is added.
+[MIT](LICENSE).
