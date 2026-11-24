@@ -9,3 +9,9 @@ build/
 dist/
 # generated at benchmark time
 results/leaderboard.db
+
+# LaTeX build files
+report/*.aux
+report/*.log
+report/*.out
+report/*.toc

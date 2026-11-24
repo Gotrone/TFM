@@ -1,6 +1,6 @@
 """Solver validation: vortex-shedding frequency (Strouhal number) against the literature.
 
-The reference is Williamson's (1989) laminar-shedding fit for an unconfined cylinder,
+The reference is the Williamson and Brown (1998) series fit for an unconfined cylinder,
 ``St = 0.2665 - 1.018 / sqrt(Re)`` (valid for roughly 49 < Re < 180). Our channel has
 periodic top and bottom boundaries and therefore a blockage ``B = D / ny``, which raises
 St, so a wider domain is also run to show the effect of the blockage.

@@ -51,7 +51,7 @@ What it shows:
 
 ## Solver validation
 
-The shedding frequency (Strouhal number `St = f D / U`) measured from a probe in the wake (`cfdbench.validation`, results in [`results/validation.json`](results/validation.json)) is compared with Williamson's fit for an unconfined cylinder, `St = 0.2665 - 1.018 / sqrt(Re)`:
+The shedding frequency (Strouhal number `St = f D / U`) measured from a probe in the wake (`cfdbench.validation`, results in [`results/validation.json`](results/validation.json)) is compared with the Williamson and Brown (1998) fit for an unconfined cylinder, `St = 0.2665 - 1.018 / sqrt(Re)`:
 
 | Re | Domain | Blockage `D / ny` | St measured | St reference | Relative error |
 |---|---|---|---|---|---|
