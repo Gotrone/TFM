@@ -10,6 +10,9 @@ benchmark. The scheme is the regularized BGK model with:
 
 Everything is lattice units (dx = dt = 1). The Reynolds number is
 ``Re = u_in * D / nu`` with ``D`` the cylinder diameter.
+
+The solver runs on the CPU (NumPy) or on an NVIDIA GPU (CuPy, ``backend="gpu"``); both
+use the same code through the array module ``xp``.
 """
 
 from __future__ import annotations
@@ -23,6 +26,28 @@ C = np.array([[0, 0], [1, 0], [0, 1], [-1, 0], [0, -1], [1, 1], [-1, 1], [-1, -1
 W = np.array([4 / 9] + [1 / 9] * 4 + [1 / 36] * 4)
 OPP = np.array([0, 3, 4, 1, 2, 7, 8, 5, 6])
 CS2 = 1.0 / 3.0
+
+
+def get_backend(backend: str = "cpu"):
+    """Return the array module: ``numpy`` for "cpu", ``cupy`` for "gpu"."""
+    if backend == "cpu":
+        return np
+    if backend == "gpu":
+        try:
+            import cupy
+        except ImportError as exc:  # pragma: no cover - depends on the machine
+            raise RuntimeError("GPU backend needs CuPy: pip install 'cupy-cuda12x[ctk]'") from exc
+        return cupy
+    raise ValueError("backend must be 'cpu' or 'gpu'")
+
+
+def _const(xp, dtype):
+    """Lattice constants as arrays of the chosen module and precision."""
+    return (
+        xp.asarray(C[:, 0], dtype=dtype)[:, None, None],
+        xp.asarray(C[:, 1], dtype=dtype)[:, None, None],
+        xp.asarray(W, dtype=dtype)[:, None, None],
+    )
 
 
 @dataclass(frozen=True)
@@ -48,39 +73,44 @@ def cylinder_mask(cfg: CylinderConfig) -> np.ndarray:
     return (x - cfg.cx) ** 2 + (y - cfg.cy) ** 2 <= (cfg.diameter / 2) ** 2
 
 
-def equilibrium(rho: np.ndarray, ux: np.ndarray, uy: np.ndarray) -> np.ndarray:
+def equilibrium(rho, ux, uy, xp=np):
     """Second-order equilibrium distribution, shape (9, nx, ny)."""
-    cu = C[:, 0, None, None] * ux + C[:, 1, None, None] * uy
+    cx, cy, w = _const(xp, rho.dtype)
+    cu = cx * ux + cy * uy
     usq = ux**2 + uy**2
-    return W[:, None, None] * rho * (1 + cu / CS2 + cu**2 / (2 * CS2**2) - usq / (2 * CS2))
+    return w * rho * (1 + cu / CS2 + cu**2 / (2 * CS2**2) - usq / (2 * CS2))
 
 
-def _moments(f: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _moments(f, xp=np):
+    cx, cy, _ = _const(xp, f.dtype)
     rho = f.sum(axis=0)
-    ux = (C[:, 0, None, None] * f).sum(axis=0) / rho
-    uy = (C[:, 1, None, None] * f).sum(axis=0) / rho
+    ux = (cx * f).sum(axis=0) / rho
+    uy = (cy * f).sum(axis=0) / rho
     return rho, ux, uy
 
 
-def _regularize(f_neq: np.ndarray) -> np.ndarray:
+def _regularize(f_neq, xp=np):
     """Project the non-equilibrium part on the second-order Hermite basis."""
-    pi_xx = (C[:, 0, None, None] ** 2 * f_neq).sum(axis=0)
-    pi_yy = (C[:, 1, None, None] ** 2 * f_neq).sum(axis=0)
-    pi_xy = (C[:, 0, None, None] * C[:, 1, None, None] * f_neq).sum(axis=0)
-    q_xx = C[:, 0] ** 2 - CS2
-    q_yy = C[:, 1] ** 2 - CS2
-    q_xy = C[:, 0] * C[:, 1]
-    out = (
-        q_xx[:, None, None] * pi_xx + q_yy[:, None, None] * pi_yy + 2 * q_xy[:, None, None] * pi_xy
-    )
-    return W[:, None, None] * out / (2 * CS2**2)
+    cx, cy, w = _const(xp, f_neq.dtype)
+    pi_xx = (cx**2 * f_neq).sum(axis=0)
+    pi_yy = (cy**2 * f_neq).sum(axis=0)
+    pi_xy = (cx * cy * f_neq).sum(axis=0)
+    out = (cx**2 - CS2) * pi_xx + (cy**2 - CS2) * pi_yy + 2 * cx * cy * pi_xy
+    return w * out / (2 * CS2**2)
 
 
 def viscosity_for_reynolds(reynolds: float, cfg: CylinderConfig) -> float:
     return cfg.u_in * cfg.diameter / reynolds
 
 
-def simulate(reynolds: float, cfg: CylinderConfig | None = None, seed: int = 0, probe: tuple[int, int] | None = None) -> dict:
+def simulate(
+    reynolds: float,
+    cfg: CylinderConfig | None = None,
+    seed: int = 0,
+    probe: tuple[int, int] | None = None,
+    backend: str = "cpu",
+    dtype: str = "float64",
+) -> dict:
     """Run one case and return the time-averaged and last instantaneous fields.
 
     Returns a dict with ``u_mean``, ``v_mean`` (time averages over
@@ -88,38 +118,43 @@ def simulate(reynolds: float, cfg: CylinderConfig | None = None, seed: int = 0, 
     frame) and ``mask``. Velocities are in units of the inlet velocity.
     If ``probe=(ix, iy)`` is given, the transverse velocity at that node is recorded at every
     averaging step and returned as ``probe_v`` (used to measure the shedding frequency).
+    ``backend`` is "cpu" or "gpu"; ``dtype`` is "float64" or "float32".
     """
     cfg = cfg or CylinderConfig()
+    xp = get_backend(backend)
+    dt = np.dtype(dtype)
     nu = viscosity_for_reynolds(reynolds, cfg)
-    tau = nu / CS2 + 0.5
-    omega = 1.0 / tau
-    mask = cylinder_mask(cfg)
+    omega = 1.0 / (nu / CS2 + 0.5)
+    mask_np = cylinder_mask(cfg)
+    mask = xp.asarray(mask_np)
+    opp = list(OPP)
 
     rng = np.random.default_rng(seed)
-    ux = np.full((cfg.nx, cfg.ny), cfg.u_in)
-    uy = 1e-4 * cfg.u_in * rng.standard_normal((cfg.nx, cfg.ny))  # tiny noise to trigger shedding
-    ux[mask] = 0.0
-    f = equilibrium(np.ones((cfg.nx, cfg.ny)), ux, uy)
-    f_inlet = equilibrium(np.ones((1, cfg.ny)), np.full((1, cfg.ny), cfg.u_in), np.zeros((1, cfg.ny)))[
-        :, 0, :
-    ]
+    ux0 = np.full((cfg.nx, cfg.ny), cfg.u_in)
+    uy0 = 1e-4 * cfg.u_in * rng.standard_normal((cfg.nx, cfg.ny))  # tiny noise to trigger shedding
+    ux0[mask_np] = 0.0
+    ux, uy = xp.asarray(ux0, dtype=dt), xp.asarray(uy0, dtype=dt)
+    f = equilibrium(xp.ones((cfg.nx, cfg.ny), dtype=dt), ux, uy, xp)
+    f_inlet = equilibrium(
+        xp.ones((1, cfg.ny), dtype=dt), xp.full((1, cfg.ny), cfg.u_in, dtype=dt), xp.zeros((1, cfg.ny), dtype=dt), xp
+    )[:, 0, :]
 
-    probe_v: list[float] = []
-    u_sum = np.zeros((cfg.nx, cfg.ny))
-    v_sum = np.zeros((cfg.nx, cfg.ny))
+    probe_v: list = []
+    u_sum = xp.zeros((cfg.nx, cfg.ny), dtype=dt)
+    v_sum = xp.zeros((cfg.nx, cfg.ny), dtype=dt)
 
     for step in range(cfg.warmup_steps + cfg.average_steps):
-        rho, ux, uy = _moments(f)
-        feq = equilibrium(rho, ux, uy)
-        f_neq = _regularize(f - feq)
+        rho, ux, uy = _moments(f, xp)
+        feq = equilibrium(rho, ux, uy, xp)
+        f_neq = _regularize(f - feq, xp)
         f_post = feq + (1 - omega) * f_neq
 
         # bounce-back on the cylinder
-        f_post[:, mask] = f[OPP][:, mask]
+        f_post[:, mask] = f[opp][:, mask]
 
         # streaming
         for i in range(9):
-            f[i] = np.roll(np.roll(f_post[i], C[i, 0], axis=0), C[i, 1], axis=1)
+            f[i] = xp.roll(xp.roll(f_post[i], int(C[i, 0]), axis=0), int(C[i, 1]), axis=1)
 
         # open boundaries
         f[:, 0, :] = f_inlet
@@ -129,23 +164,26 @@ def simulate(reynolds: float, cfg: CylinderConfig | None = None, seed: int = 0, 
             u_sum += ux
             v_sum += uy
             if probe is not None:
-                probe_v.append(float(uy[probe]) / cfg.u_in)
+                probe_v.append(uy[probe])
 
-    if not np.isfinite(f).all():
+    if not bool(xp.isfinite(f).all()):
         raise RuntimeError(f"Simulation diverged for Re={reynolds}")
 
+    def host(a):
+        return a.get() if xp is not np else a
+
     n = cfg.average_steps
-    u_mean = u_sum / n / cfg.u_in
-    v_mean = v_sum / n / cfg.u_in
-    u_inst = ux / cfg.u_in
-    v_inst = uy / cfg.u_in
+    u_mean = host(u_sum).astype(np.float64) / n / cfg.u_in
+    v_mean = host(v_sum).astype(np.float64) / n / cfg.u_in
+    u_inst = host(ux).astype(np.float64) / cfg.u_in
+    v_inst = host(uy).astype(np.float64) / cfg.u_in
     for arr in (u_mean, v_mean, u_inst, v_inst):
-        arr[mask] = 0.0
+        arr[mask_np] = 0.0
     return {
         "u_mean": u_mean.astype(np.float32),
         "v_mean": v_mean.astype(np.float32),
         "u_inst": u_inst.astype(np.float32),
         "v_inst": v_inst.astype(np.float32),
-        "mask": mask,
-        "probe_v": np.array(probe_v),
+        "mask": mask_np,
+        "probe_v": host(xp.stack(probe_v)).astype(np.float64) / cfg.u_in if probe_v else np.array([]),
     }

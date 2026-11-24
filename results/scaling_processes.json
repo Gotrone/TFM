@@ -1,0 +1,32 @@
+[
+  {
+    "workers": 1,
+    "seconds": 83.36,
+    "speedup": 1.0,
+    "efficiency": 1.0
+  },
+  {
+    "workers": 2,
+    "seconds": 53.07,
+    "speedup": 1.57,
+    "efficiency": 0.785
+  },
+  {
+    "workers": 4,
+    "seconds": 50.62,
+    "speedup": 1.65,
+    "efficiency": 0.412
+  },
+  {
+    "workers": 8,
+    "seconds": 61.6,
+    "speedup": 1.35,
+    "efficiency": 0.169
+  },
+  {
+    "workers": 16,
+    "seconds": 65.06,
+    "speedup": 1.28,
+    "efficiency": 0.08
+  }
+]

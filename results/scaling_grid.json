@@ -1,0 +1,137 @@
+[
+  {
+    "factor": 1,
+    "grid": "200x72",
+    "cells": 14400,
+    "backend": "cpu",
+    "dtype": "float64",
+    "ms_per_step": 5.015,
+    "mlups": 2.87
+  },
+  {
+    "factor": 1,
+    "grid": "200x72",
+    "cells": 14400,
+    "backend": "gpu",
+    "dtype": "float64",
+    "ms_per_step": 5.615,
+    "mlups": 2.56
+  },
+  {
+    "factor": 1,
+    "grid": "200x72",
+    "cells": 14400,
+    "backend": "gpu",
+    "dtype": "float32",
+    "ms_per_step": 4.526,
+    "mlups": 3.18
+  },
+  {
+    "factor": 2,
+    "grid": "400x144",
+    "cells": 57600,
+    "backend": "cpu",
+    "dtype": "float64",
+    "ms_per_step": 34.387,
+    "mlups": 1.68
+  },
+  {
+    "factor": 2,
+    "grid": "400x144",
+    "cells": 57600,
+    "backend": "gpu",
+    "dtype": "float64",
+    "ms_per_step": 4.771,
+    "mlups": 12.07
+  },
+  {
+    "factor": 2,
+    "grid": "400x144",
+    "cells": 57600,
+    "backend": "gpu",
+    "dtype": "float32",
+    "ms_per_step": 4.511,
+    "mlups": 12.77
+  },
+  {
+    "factor": 4,
+    "grid": "800x288",
+    "cells": 230400,
+    "backend": "cpu",
+    "dtype": "float64",
+    "ms_per_step": 129.392,
+    "mlups": 1.78
+  },
+  {
+    "factor": 4,
+    "grid": "800x288",
+    "cells": 230400,
+    "backend": "gpu",
+    "dtype": "float64",
+    "ms_per_step": 9.871,
+    "mlups": 23.34
+  },
+  {
+    "factor": 4,
+    "grid": "800x288",
+    "cells": 230400,
+    "backend": "gpu",
+    "dtype": "float32",
+    "ms_per_step": 6.42,
+    "mlups": 35.89
+  },
+  {
+    "factor": 8,
+    "grid": "1600x576",
+    "cells": 921600,
+    "backend": "cpu",
+    "dtype": "float64",
+    "ms_per_step": 539.161,
+    "mlups": 1.71
+  },
+  {
+    "factor": 8,
+    "grid": "1600x576",
+    "cells": 921600,
+    "backend": "gpu",
+    "dtype": "float64",
+    "ms_per_step": 30.841,
+    "mlups": 29.88
+  },
+  {
+    "factor": 8,
+    "grid": "1600x576",
+    "cells": 921600,
+    "backend": "gpu",
+    "dtype": "float32",
+    "ms_per_step": 17.819,
+    "mlups": 51.72
+  },
+  {
+    "factor": 16,
+    "grid": "3200x1152",
+    "cells": 3686400,
+    "backend": "cpu",
+    "dtype": "float64",
+    "ms_per_step": 2141.395,
+    "mlups": 1.72
+  },
+  {
+    "factor": 16,
+    "grid": "3200x1152",
+    "cells": 3686400,
+    "backend": "gpu",
+    "dtype": "float64",
+    "ms_per_step": 119.789,
+    "mlups": 30.77
+  },
+  {
+    "factor": 16,
+    "grid": "3200x1152",
+    "cells": 3686400,
+    "backend": "gpu",
+    "dtype": "float32",
+    "ms_per_step": 68.757,
+    "mlups": 53.62
+  }
+]

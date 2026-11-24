@@ -134,3 +134,30 @@ def test_evaluate_submission_requires_all_splits(tiny_dataset):
     _, truth_x = tiny_dataset.subset("test_extrap")
     rows = evaluate_submission(tiny_dataset, {"test_interp": truth, "test_extrap": truth_x})
     assert all(r["metrics"]["rel_l2"] == 0 for r in rows)
+
+
+# --- per-case generation and assembly (SLURM job arrays) ---------------------------------------
+def test_generate_case_and_assemble_match_generate(tmp_path):
+    from dataclasses import replace
+
+    from cfdbench import dataset
+    from cfdbench.lbm import CylinderConfig
+
+    cfg = CylinderConfig(nx=50, ny=24, diameter=6, cx=12, warmup_steps=30, average_steps=10)
+    splits = {"train": [40, 60, 80], "test_interp": [50], "test_extrap": [30]}
+    old = dataset.SPLITS
+    dataset.SPLITS = splits  # shrink the case list for the test
+    try:
+        n = len(dataset.case_list())
+        for i in range(n):
+            dataset.generate_case(i, tmp_path / "cases", cfg)
+        a = dataset.assemble(tmp_path / "cases", tmp_path / "a.npz")
+        b = dataset.generate(tmp_path / "b.npz", cfg, workers=1, splits=splits)
+        da, db = dataset.load_dataset(a), dataset.load_dataset(b)
+        assert np.allclose(da.fields, db.fields) and (da.split == db.split).all()
+        with pytest.raises(FileNotFoundError):
+            (tmp_path / "cases" / "case_re050.npz").unlink()
+            dataset.assemble(tmp_path / "cases", tmp_path / "c.npz")
+    finally:
+        dataset.SPLITS = old
+    assert replace(cfg).nx == 50

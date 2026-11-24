@@ -62,6 +62,50 @@ The shedding frequency (Strouhal number `St = f D / U`) measured from a probe in
 
 The solver produces the right behavior (shedding starts, St increases with Re) but **overestimates St**, and the error roughly halves when the blockage is halved, so confinement (periodic top and bottom boundaries) explains a large part of it. The rest probably comes from the coarse resolution (14 cells per diameter), which I did not test. The dataset therefore represents a *confined* cylinder flow, which is fine for a benchmark of prediction models but not for physical conclusions. Drag was not validated.
 
+## Performance and HPC
+
+Generating the reference data is the compute-heavy part of the suite, so I measured it (`cfdbench scaling`; raw data in [`results/scaling_processes.json`](results/scaling_processes.json) and [`results/scaling_grid.json`](results/scaling_grid.json)). Machine: AMD Ryzen 7 4800H (8 cores, 16 threads), NVIDIA GTX 1660 Ti (6 GB), Windows, NumPy / CuPy.
+
+### CPU: scaling with the number of processes
+
+16 short simulations (1,000 steps each) run with 1 to 16 worker processes:
+
+| Workers | Time (s) | Speedup | Efficiency |
+|---|---|---|---|
+| 1 | 83.4 | 1.00 | 1.00 |
+| 2 | 53.1 | 1.57 | 0.79 |
+| 4 | 50.6 | 1.65 | 0.41 |
+| 8 | 61.6 | 1.35 | 0.17 |
+| 16 | 65.1 | 1.28 | 0.08 |
+
+![Process scaling](results/figures/scaling_processes.png)
+
+**Scaling is poor**: the best speedup is 1.65 with 4 workers and it gets worse beyond that. The solver is *memory-bandwidth bound* (every step streams the nine distribution arrays through several NumPy temporaries), so the processes compete for the same memory bus instead of adding compute. This is also why generating the full dataset with 12 workers took about 35 minutes instead of the few minutes I expected. I did not profile the code to confirm this; it is my explanation, consistent with the flat throughput in the grid study below.
+
+### CPU vs GPU: throughput vs grid size
+
+Million lattice updates per second (MLUPS, higher is better), 30 steps per measurement:
+
+| Grid | CPU float64 | GPU float64 | GPU float32 | GPU speedup (float32 / float64) |
+|---|---|---|---|---|
+| 200 x 72 (dataset) | 2.9 | 2.6 | 3.2 | 1.1x / 0.9x |
+| 400 x 144 | 1.7 | 12.1 | 12.8 | 7.6x / 7.2x |
+| 800 x 288 | 1.8 | 23.3 | 35.9 | 20x / 13x |
+| 1600 x 576 | 1.7 | 29.9 | 51.7 | 30x / 17x |
+| 3200 x 1152 | 1.7 | 30.8 | 53.6 | 31x / 17x |
+
+![Grid scaling](results/figures/scaling_grid.png)
+
+- On the **dataset grid the GPU brings nothing**: the grid is so small that a step is limited by the latency of launching about a hundred small GPU kernels, not by computation.
+- From 400 x 144 on the GPU wins, and on the largest grid it is about **17x faster in float64 and 31x in float32** than one CPU process. CPU throughput stays flat (about 1.7 MLUPS), which supports the memory-bound explanation.
+- float32 differs from float64 by about 2e-5 on the mean field in a short test (`max |gpu32 - cpu64|`), far below the model errors of the benchmark, but I did not re-run the full dataset in float32.
+
+### Cluster (SLURM)
+
+[`slurm/`](slurm/README.md) contains job scripts for a full node, for a job array (one case per task) and for a GPU node, plus the `generate-case` and `assemble` commands they use (tested locally). **I had no cluster access, so the scripts themselves were never run on a cluster.**
+
+Caveats on these measurements: one run per configuration (no repetitions, no error bars), a laptop that can throttle, process start-up time included in the CPU study, and a short unit test that ran at the same time as the first CPU measurements.
+
 ## Quick start
 
 ```bash
@@ -69,11 +113,11 @@ git clone https://github.com/Gotrone/TFM.git
 cd TFM
 python -m venv .venv
 .venv\Scripts\activate          # Linux / macOS: source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e ".[dev]"          # GPU solver (optional): pip install "cupy-cuda12x[ctk]"
 
 cfdbench benchmark --reset      # run all baselines, fill the leaderboard, write figures
 cfdbench serve                  # web platform on http://127.0.0.1:8000
-pytest                          # 23 tests
+pytest                          # 24 tests
 ```
 
 The dataset (`data/cylinder_flow.npz`, 2.8 MB) is committed. To regenerate it from scratch (27 simulations; it took about half an hour on my 16-thread laptop, because parallel runs compete for memory bandwidth): `cfdbench generate`.
@@ -89,7 +133,9 @@ docker run -p 8000:8000 cfdbench
 
 | Command | Description |
 |---|---|
-| `cfdbench generate` | run the LBM simulations and write the dataset |
+| `cfdbench generate` | run the LBM simulations and write the dataset (`--workers N`, `--backend gpu`, `--dtype float32`) |
+| `cfdbench generate-case` / `assemble` | one case per call (SLURM array tasks) and the final assembly |
+| `cfdbench scaling` | CPU process-scaling and CPU vs GPU studies |
 | `cfdbench info` | print the dataset description (grid, splits, checksum) |
 | `cfdbench benchmark` | fit the baselines, score them, store results, draw figures |
 | `cfdbench leaderboard` | print the leaderboard |
@@ -128,17 +174,20 @@ Or work outside the library and upload the result to the web platform:
 
 ```
 src/cfdbench/
-├── lbm.py             # D2Q9 regularized lattice Boltzmann solver (cylinder in a channel)
+├── lbm.py             # D2Q9 regularized lattice Boltzmann solver, CPU (NumPy) or GPU (CuPy)
 ├── dataset.py         # splits, parallel generation, .npz storage, loading, checksum
 ├── preprocessing.py   # Standardizer (fluid cells only), downsample, crop, field_to_image
 ├── metrics.py         # evaluation metrics on fluid cells
 ├── models.py          # Model interface, registry and the 7 baselines
 ├── benchmark.py       # fit / predict / score loop, submission scoring
 ├── leaderboard.py     # SQLite storage and ranking
+├── scaling.py         # process-scaling and CPU vs GPU performance studies
+├── validation.py      # Strouhal-number check of the solver
 ├── figures.py         # figures for the report
 ├── cli.py             # `cfdbench` command
 └── web/               # FastAPI app and static front end
-tests/                 # 23 tests (solver, preprocessing, metrics, models, API)
+slurm/                 # SLURM job scripts (not run on a cluster)
+tests/                 # 24 tests (solver, preprocessing, metrics, models, API)
 data/cylinder_flow.npz # the versioned dataset
 results/               # benchmark.json and figures
 ```
@@ -163,12 +212,14 @@ results/               # benchmark.json and figures
 - **Modest test sets**: 15 interpolation and 6 extrapolation cases, all from one smooth family of flows. Differences of a few percent between models should not be over-interpreted.
 - **Baselines are small**: interpolation, POD regression and a small MLP on POD coefficients. There is no CNN, U-Net or neural operator, which are the models the benchmark is ultimately meant for (they need a deep-learning framework and more data than 6 training fields).
 - **Web platform is a prototype**: submissions are limited to 25 MB, names are validated, an optional API key (`CFDBENCH_API_KEY`) protects the upload and a per-IP limit (`CFDBENCH_RATE_LIMIT`, default 10 per hour) slows spam. The limit is kept in memory (lost at restart, not shared between processes), there are no user accounts, and anyone can still submit predictions tuned on the public test Reynolds numbers. SQLite and a single process do not scale. The test ground truth is stored in the dataset file used by the server.
+- **HPC part is modest**: one machine (a laptop), one solver, no profiling, no MPI or multi-GPU, the CPU scaling is poor and the GPU only pays off on grids much larger than the ones used in the dataset. The SLURM scripts were not run on a cluster.
 - **Not an exhaustive literature review**: only the benchmarks cited above were considered.
 
 ## Possible improvements
 
 1. Add experimentally validated data (PIV or the FDA benchmarks) and real CFD datasets (CFDBench, FlowBench) through the same `CFDDataset` interface; regenerate the dataset in a wider domain at higher resolution and validate drag too.
 2. Add deep-learning baselines (CNN / U-Net, Fourier neural operator) and a GPU training script for the HPC cluster.
+   Speed up the data generation itself: solve all Reynolds numbers *as one batch* on the GPU (the small grid is launch-bound, so a batch dimension should fill the device), fuse the NumPy temporaries into custom kernels, then decompose large domains across several GPUs (MPI).
 3. Widen the task: several geometries and parameters, unsteady prediction (rollout error), pressure and vorticity.
 4. Add metrics that matter physically (vorticity, recirculation length, drag) and statistical significance (more test cases, confidence intervals).
 5. Harden the platform: authentication, rate limiting, a job queue for evaluation, a database such as PostgreSQL, HTTPS (for example behind a reverse proxy).

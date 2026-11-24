@@ -66,36 +66,22 @@ class CFDDataset:
         }
 
 
-def _run_case(args: tuple[int, dict]) -> tuple[int, dict]:
-    reynolds, cfg_dict = args
-    return reynolds, simulate(reynolds, CylinderConfig(**cfg_dict), seed=reynolds)
+def case_list(splits: dict[str, list[int]] | None = None) -> list[tuple[int, str]]:
+    """All (Reynolds number, split) pairs in a fixed order (used to index SLURM array jobs)."""
+    return [(re, name) for name, res in (splits or SPLITS).items() for re in res]
 
 
-def generate(
-    path: str | Path = DEFAULT_PATH,
-    config: CylinderConfig | None = None,
-    workers: int | None = None,
-    splits: dict[str, list[int]] | None = None,
-) -> Path:
-    """Run every simulation and write the dataset file (compressed ``.npz``)."""
-    cfg = config or CylinderConfig()
-    splits = splits or SPLITS
-    cases = [(re, name) for name, res in splits.items() for re in res]
-    cfg_dict = cfg.__dict__.copy()
+def _run_case(args: tuple) -> tuple[int, dict]:
+    reynolds, cfg_dict, *opts = args
+    backend, dtype = opts if opts else ("cpu", "float64")
+    return reynolds, simulate(reynolds, CylinderConfig(**cfg_dict), seed=reynolds, backend=backend, dtype=dtype)
 
-    jobs = [(re, cfg_dict) for re, _ in cases]
-    if workers == 1:
-        results = dict(map(_run_case, jobs))
-    else:
-        with ProcessPoolExecutor(max_workers=workers) as pool:
-            results = dict(pool.map(_run_case, jobs))
 
+def _write_dataset(path: str | Path, cfg: CylinderConfig, cases: list[tuple[int, str]], results: dict) -> Path:
     reynolds = np.array([re for re, _ in cases], dtype=np.float32)
     split = np.array([name for _, name in cases])
     fields = np.stack([[results[re]["u_mean"], results[re]["v_mean"]] for re, _ in cases]).astype(np.float32)
     inst = np.stack([[results[re]["u_inst"], results[re]["v_inst"]] for re, _ in cases]).astype(np.float32)
-    mask = cylinder_mask(cfg)
-
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
@@ -103,12 +89,65 @@ def generate(
         reynolds=reynolds,
         fields=fields,
         inst_fields=inst,
-        mask=mask,
+        mask=cylinder_mask(cfg),
         split=split,
-        config=json.dumps(cfg_dict),
+        config=json.dumps(cfg.__dict__.copy()),
         version=DATASET_VERSION,
     )
     return path
+
+
+def generate(
+    path: str | Path = DEFAULT_PATH,
+    config: CylinderConfig | None = None,
+    workers: int | None = None,
+    splits: dict[str, list[int]] | None = None,
+    backend: str = "cpu",
+    dtype: str = "float64",
+) -> Path:
+    """Run every simulation and write the dataset file (compressed ``.npz``).
+
+    ``workers`` processes run on the CPU. With ``backend="gpu"`` the cases run one after the
+    other on the GPU (a single process owns the device).
+    """
+    cfg = config or CylinderConfig()
+    cases = case_list(splits)
+    cfg_dict = cfg.__dict__.copy()
+    jobs = [(re, cfg_dict, backend, dtype) for re, _ in cases]
+    if workers == 1 or backend == "gpu":
+        results = dict(map(_run_case, jobs))
+    else:
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            results = dict(pool.map(_run_case, jobs))
+    return _write_dataset(path, cfg, cases, results)
+
+
+def generate_case(index: int, out_dir: str | Path, config: CylinderConfig | None = None, backend: str = "cpu", dtype: str = "float64") -> Path:
+    """Simulate one case of :func:`case_list` and save it (for SLURM job arrays)."""
+    cfg = config or CylinderConfig()
+    cases = case_list()
+    if not 0 <= index < len(cases):
+        raise IndexError(f"case index {index} out of range (0..{len(cases) - 1})")
+    re, split = cases[index]
+    _, out = _run_case((re, cfg.__dict__.copy(), backend, dtype))
+    path = Path(out_dir) / f"case_re{re:03d}.npz"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(path, split=split, reynolds=re, config=json.dumps(cfg.__dict__.copy()), **out)
+    return path
+
+
+def assemble(case_dir: str | Path, path: str | Path = DEFAULT_PATH) -> Path:
+    """Combine the files written by :func:`generate_case` into the final dataset."""
+    cases = case_list()
+    results, cfg_json = {}, None
+    for re, _ in cases:
+        f = Path(case_dir) / f"case_re{re:03d}.npz"
+        if not f.exists():
+            raise FileNotFoundError(f"missing case file {f} (job failed or still running?)")
+        with np.load(f, allow_pickle=False) as z:
+            results[re] = {k: z[k] for k in ("u_mean", "v_mean", "u_inst", "v_inst")}
+            cfg_json = json.loads(str(z["config"]))
+    return _write_dataset(path, CylinderConfig(**cfg_json), cases, results)
 
 
 def checksum(path: str | Path) -> str:
