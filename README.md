@@ -119,8 +119,8 @@ Caveats on these measurements: one run per configuration (no repetitions, no err
 ## Quick start
 
 ```bash
-git clone https://github.com/Gotrone/TFM.git
-cd TFM
+git clone https://github.com/Gotrone/cfd-benchmark-suite.git
+cd cfd-benchmark-suite
 python -m venv .venv
 .venv\Scripts\activate          # Linux / macOS: source .venv/bin/activate
 pip install -e ".[dev]"          # GPU solver (optional): pip install "cupy-cuda12x[ctk]"
